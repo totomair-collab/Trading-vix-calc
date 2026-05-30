@@ -1,3 +1,4 @@
+
 import streamlit as st
 
 st.set_page_config(page_title="Trading Rechner", layout="centered")
@@ -11,7 +12,7 @@ if "orders" not in st.session_state:
     st.session_state.orders = []
 
 # ----------------------------
-# Input: Orders
+# Order Eingabe
 # ----------------------------
 st.subheader("Orders hinzufügen")
 
@@ -39,7 +40,7 @@ if st.session_state.orders:
     for i, o in enumerate(st.session_state.orders, 1):
         st.write(f"{i}. Preis: {o['price']} | Menge: {o['qty']}")
 else:
-    st.write("Keine Orders")
+    st.write("Keine Orders vorhanden")
 
 # ----------------------------
 # Berechnung
@@ -50,20 +51,23 @@ if st.session_state.orders:
     total_cost = sum(o["price"] * o["qty"] for o in st.session_state.orders)
     avg_price = total_cost / total_qty
 
-if total_qty > 1000:
-    st.markdown(
-        "<div style='background-color:red;padding:20px;border-radius:10px;color:white;font-size:20px;'>"
-        "⚠️ POSITION ÜBER 1000 STÜCK ⚠️"
-        "</div>",
-        unsafe_allow_html=True
-    )
-    
     st.subheader("Position")
 
     st.write(f"Gesamtmenge: {total_qty}")
     st.write(f"Durchschnittspreis: {avg_price:.4f}")
 
+    # ----------------------------
+    # WARNUNG > 1000 Stück
+    # ----------------------------
+    if total_qty > 1000:
+        st.error("⚠️ KRITISCH: Mehr als 1000 Stück im Trade!")
+        st.markdown("## ❗ POSITION ZU GROSS ❗")
+    else:
+        st.success("Positionsgröße im normalen Bereich")
+
+    # ----------------------------
     # Marktpreis
+    # ----------------------------
     market_price = st.number_input("Aktueller Marktpreis", value=18.0, step=0.01)
 
     # Long / Short
@@ -77,8 +81,8 @@ if total_qty > 1000:
     pnl_percent = (pnl / (avg_price * total_qty)) * 100
 
     st.subheader("PnL")
-    st.write(f"Unrealized PnL: {pnl:.2f}")
-    st.write(f"PnL %: {pnl_percent:.2f}%")
+    st.write(f"Unrealized PnL: {pnl:.2f} €")
+    st.write(f"PnL: {pnl_percent:.2f} %")
 
     # ----------------------------
     # Risiko / Stop Loss
@@ -99,8 +103,9 @@ if total_qty > 1000:
     st.write(f"Risiko bis Stop: {risk:.2f} €")
     st.write(f"Risiko vom Konto: {risk_percent:.2f} %")
 
+    # Risiko Warnung
     if risk_percent > 5:
-        st.warning("Hoher Risikoanteil (>5%)")
+        st.warning("⚠️ Hohes Risiko (>5% vom Konto)")
 
     # ----------------------------
     # Reset
