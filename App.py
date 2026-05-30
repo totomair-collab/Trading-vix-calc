@@ -1,18 +1,18 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="VIX Trading System", layout="centered")
+st.set_page_config(page_title="VIX Ladder System", layout="centered")
 
-st.title("VIX Trading System – 8 Stufen + Regime")
+st.title("VIX 8-Stufen System (Aufbau + Abbau + Regime)")
 
 # =========================
 # 8-STUFEN (EDITIERBAR)
 # =========================
-st.subheader("📊 8-Stufen-Strategie (editierbar)")
+st.subheader("📊 8-Stufen Aufbau")
 
 default_data = {
-    "vix": [18.29, 18.39, 18.59, 18.89, 19.29, 19.79, 20.39, 21.09],
-    "qty": [50, 75, 125, 200, 300, 425, 575, 750]
+    "vix": [18.3, 18.8, 19.3, 20.0, 21.0, 22.5, 24.0, 26.0],
+    "qty": [50, 60, 75, 90, 110, 140, 180, 230]
 }
 
 df = st.data_editor(
@@ -21,15 +21,11 @@ df = st.data_editor(
     use_container_width=True
 )
 
-# Berechnung
 total_qty = df["qty"].sum()
 total_cost = (df["vix"] * df["qty"]).sum()
 avg_price = total_cost / total_qty
 
-st.write("---")
-st.subheader("📌 Positionsdaten")
-
-st.write(f"Gesamtmenge: {total_qty}")
+st.write(f"Gesamtposition: {total_qty}")
 st.write(f"Ø Einstieg: {avg_price:.2f}")
 
 # =========================
@@ -53,8 +49,6 @@ st.write(f"PnL: {pnl:.2f}")
 st.write("---")
 st.subheader("🧠 Regime-System")
 
-vix = market_price
-
 market_trend = st.selectbox(
     "Markttrend",
     ["Uptrend", "Sideways", "Downtrend"]
@@ -70,8 +64,10 @@ event_level = st.selectbox(
     ["Keine Events", "Makro-News", "Krisen-News"]
 )
 
+vix = market_price
+
 # =========================
-# SCORE SYSTEM
+# VIX SCORE
 # =========================
 if vix < 12:
     vix_score = 10
@@ -108,66 +104,90 @@ regime_score = (
 )
 
 # =========================
-# REGIME OUTPUT
+# REGIME CLASSIFICATION
 # =========================
 st.subheader("📊 Markt-Regime")
 
 if regime_score < 30:
     regime = "CALM"
-    st.success(f"{regime} | Score: {regime_score:.1f}")
+    st.success(f"{regime} | {regime_score:.1f}")
 
 elif regime_score < 50:
     regime = "NORMAL"
-    st.info(f"{regime} | Score: {regime_score:.1f}")
+    st.info(f"{regime} | {regime_score:.1f}")
 
 elif regime_score < 70:
     regime = "STRESS"
-    st.warning(f"{regime} | Score: {regime_score:.1f}")
+    st.warning(f"{regime} | {regime_score:.1f}")
 
 else:
     regime = "CRISIS"
-    st.error(f"{regime} | Score: {regime_score:.1f}")
+    st.error(f"{regime} | {regime_score:.1f}")
 
 # =========================
-# REGIME STEUERUNG
+# POSITION PHASE LOGIC
 # =========================
-st.subheader("⚙️ Risiko-Steuerung")
+st.subheader("⚙️ Phase (Aufbau / Halten / Abbau)")
 
-if regime == "CALM":
+if vix <= 21:
+    phase = "AUFBAU / HOLD"
+elif vix <= 24:
+    phase = "VOLLE POSITION / HOLD"
+elif vix <= 26:
+    phase = "BEGINN ABBAU"
+elif vix <= 24:
+    phase = "ABBAU"
+elif vix <= 22.5:
+    phase = "ABBAU BESCHLEUNIGT"
+elif vix <= 20:
+    phase = "STARKER ABBAU"
+else:
+    phase = "FLAT / MINIMAL EXPOSURE"
+
+st.write(f"Aktuelle Phase: {phase}")
+
+# =========================
+# ABBAU LOGIK
+# =========================
+st.subheader("📉 Abbau-Logik (wenn VIX fällt)")
+
+if vix <= 18.5:
+    de_risk = "REST POSITION GLATTSTELLEN"
+    factor = 0.0
+elif vix <= 20:
+    de_risk = "25% ABBRUCH"
+    factor = 0.25
+elif vix <= 21:
+    de_risk = "20% ABBRUCH"
+    factor = 0.45
+elif vix <= 22.5:
+    de_risk = "15% ABBRUCH"
+    factor = 0.60
+elif vix <= 24:
+    de_risk = "10% ABBRUCH"
+    factor = 0.75
+else:
+    de_risk = "KEIN ABBRUCH"
     factor = 1.0
-    allow_scaling = True
-elif regime == "NORMAL":
-    factor = 0.8
-    allow_scaling = True
-elif regime == "STRESS":
-    factor = 0.5
-    allow_scaling = False
+
+adjusted_position = total_qty * factor
+
+st.write(de_risk)
+st.write(f"Erlaubte Restposition: {adjusted_position:.0f}")
+
+if total_qty > adjusted_position:
+    st.warning("⚠️ Position sollte reduziert werden")
 else:
-    factor = 0.2
-    allow_scaling = False
-
-adjusted_limit = total_qty * factor
-
-st.write(f"Original Position: {total_qty}")
-st.write(f"Regime-Limit: {adjusted_limit:.0f}")
-
-if total_qty > adjusted_limit:
-    st.error("⚠️ Position zu groß für aktuelles Regime")
-else:
-    st.success("Position im erlaubten Bereich")
-
-if not allow_scaling:
-    st.warning("⚠️ Skalierung deaktiviert im aktuellen Regime")
+    st.success("Position im Zielbereich")
 
 # =========================
-# RISIKO-ALERT
+# RISK CHECK
 # =========================
-st.write("---")
-st.subheader("🚨 Risiko-Check")
+st.subheader("🚨 Risiko")
 
 if vix > 25 and total_qty > 1000:
     st.error("EXTREMES RISIKO: hohe Volatilität + große Position")
 elif vix > 20:
-    st.warning("Erhöhtes Volatilitätsrisiko")
+    st.warning("Erhöhtes Risiko")
 else:
     st.success("Normales Umfeld")
