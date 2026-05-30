@@ -1,9 +1,9 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="VIX Ladder Control Panel", layout="centered")
+st.set_page_config(page_title="VIX Risk Control Panel", layout="centered")
 
-st.title("VIX Ladder System – Editierbares Risk Control Panel")
+st.title("VIX Ladder System – Safe Mode Control Panel")
 
 # =========================
 # AUFBAU (FIX)
@@ -58,5 +58,81 @@ exit_df = st.data_editor(
 )
 
 # =========================
-# LIVE ABBAU-BERECHNUNG
-# =================
+# SAFE MODE VALIDATION
+# =========================
+st.subheader("🛡 Safe Mode Check")
+
+errors = []
+
+# 1. Stufenprüfung
+if not exit_df["stufe"].is_monotonic_increasing:
+    errors.append("Stufen sind nicht aufsteigend sortiert")
+
+# 2. Faktorprüfung
+if exit_df["reduce_factor"].min() < 0 or exit_df["reduce_factor"].max() > 1:
+    errors.append("Reduce-Faktor muss zwischen 0 und 1 liegen")
+
+# 3. Duplikate
+if exit_df["stufe"].duplicated().any():
+    errors.append("Doppelte Stufen vorhanden")
+
+if errors:
+    for e in errors:
+        st.error(e)
+    st.stop()
+else:
+    st.success("Abbau-Tabelle ist gültig")
+
+# =========================
+# ABBAU LOGIK
+# =========================
+def get_allowed_factor(vix, df):
+    if vix > 26:
+        return float(df.loc[0, "reduce_factor"])
+    elif vix > 24:
+        return float(df.loc[1, "reduce_factor"])
+    elif vix > 22.5:
+        return float(df.loc[2, "reduce_factor"])
+    elif vix > 21:
+        return float(df.loc[3, "reduce_factor"])
+    elif vix > 20:
+        return float(df.loc[4, "reduce_factor"])
+    elif vix > 18.5:
+        return float(df.loc[5, "reduce_factor"])
+    else:
+        return float(df.loc[5, "reduce_factor"])
+
+factor = get_allowed_factor(vix, exit_df)
+
+allowed_qty = total_qty * factor
+
+st.subheader("📉 Positionskontrolle")
+st.write(f"Erlaubte Position: {allowed_qty:.0f}")
+
+if total_qty > allowed_qty:
+    st.warning("⚠️ Position über Limit → reduzieren")
+else:
+    st.success("Position im Rahmen")
+
+# =========================
+# SYSTEM STATUS
+# =========================
+st.write("---")
+st.subheader("🧠 Systemstatus")
+
+if vix <= 18.5:
+    st.success("Normalzone – volle Position erlaubt")
+elif vix <= 21:
+    st.info("Aufbau-/Haltezone")
+elif vix <= 24:
+    st.warning("Stresszone – vorsichtig reduzieren")
+else:
+    st.error("Extremzone – Risikoabbau aktiv")
+
+# =========================
+# DEBUG VIEW
+# =========================
+st.write("---")
+st.subheader("🔧 Debug Ansicht")
+
+st.dataframe(exit_df)
