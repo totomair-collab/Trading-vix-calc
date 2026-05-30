@@ -50,6 +50,14 @@ if st.session_state.orders:
     total_cost = sum(o["price"] * o["qty"] for o in st.session_state.orders)
     avg_price = total_cost / total_qty
 
+if total_qty > 1000:
+    st.markdown(
+        "<div style='background-color:red;padding:20px;border-radius:10px;color:white;font-size:20px;'>"
+        "⚠️ POSITION ÜBER 1000 STÜCK ⚠️"
+        "</div>",
+        unsafe_allow_html=True
+    )
+    
     st.subheader("Position")
 
     st.write(f"Gesamtmenge: {total_qty}")
