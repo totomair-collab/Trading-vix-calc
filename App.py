@@ -1,227 +1,164 @@
 import streamlit as st
+import pandas as pd
 
-st.set_page_config(page_title="Trading & VIX Risk Tool", layout="centered")
+st.set_page_config(page_title="VIX Trading System", layout="centered")
 
-st.title("Trading Tool (DCA + Risiko + VIX Regime)")
-
-# =========================
-# SESSION STATE
-# =========================
-if "orders" not in st.session_state:
-    st.session_state.orders = []
+st.title("VIX Trading System (8-Stufen + Regime)")
 
 # =========================
-# ORDERS
+# 8-STUFEN PLAN
 # =========================
-st.subheader("📥 Orders")
+st.subheader("📊 8-Stufen-Plan (Strategie)")
 
-col1, col2 = st.columns(2)
+stages = [
+    {"vix": 18.29, "qty": 50},
+    {"vix": 18.39, "qty": 75},
+    {"vix": 18.59, "qty": 125},
+    {"vix": 18.89, "qty": 200},
+    {"vix": 19.29, "qty": 300},
+    {"vix": 19.79, "qty": 425},
+    {"vix": 20.39, "qty": 575},
+    {"vix": 21.09, "qty": 750},
+]
 
-with col1:
-    price = st.number_input("Preis", value=18.0, step=0.01)
+df = pd.DataFrame(stages)
+st.dataframe(df)
 
-with col2:
-    qty = st.number_input("Menge", value=100, step=1)
+total_qty = df["qty"].sum()
+total_cost = (df["vix"] * df["qty"]).sum()
+avg_price = total_cost / total_qty
 
-if st.button("Order hinzufügen"):
-    st.session_state.orders.append({"price": price, "qty": qty})
+st.write(f"Gesamtmenge: {total_qty}")
+st.write(f"Ø Einstieg: {avg_price:.2f}")
 
-if st.session_state.orders:
-    if st.button("Letzte Order löschen"):
-        st.session_state.orders.pop()
+# =========================
+# MARKTPREIS + PnL
+# =========================
+st.subheader("📈 Markt")
 
-st.write("---")
-st.subheader("📊 Aktuelle Orders")
+market_price = st.number_input("Aktueller VIX", value=18.0, step=0.1)
+direction = st.radio("Richtung", ["Short", "Long"])
 
-if st.session_state.orders:
-    for i, o in enumerate(st.session_state.orders, 1):
-        st.write(f"{i}. Preis: {o['price']} | Menge: {o['qty']}")
+if direction == "Short":
+    pnl = (avg_price - market_price) * total_qty
 else:
-    st.write("Keine Orders vorhanden")
+    pnl = (market_price - avg_price) * total_qty
+
+st.write(f"PnL: {pnl:.2f}")
 
 # =========================
-# CALCULATION
+# REGIME INPUT
 # =========================
-if st.session_state.orders:
+st.subheader("🧠 Regime-System")
 
-    total_qty = sum(o["qty"] for o in st.session_state.orders)
-    total_cost = sum(o["price"] * o["qty"] for o in st.session_state.orders)
-    avg_price = total_cost / total_qty
+vix = market_price
 
-    st.write("---")
-    st.subheader("📌 Position")
+market_trend = st.selectbox(
+    "Markttrend",
+    ["Uptrend", "Sideways", "Downtrend"]
+)
 
-    st.write(f"Gesamtmenge: {total_qty}")
-    st.write(f"Durchschnittspreis: {avg_price:.4f}")
+term_structure = st.selectbox(
+    "VIX Struktur",
+    ["Contango (normal)", "Flat", "Backwardation (Stress)"]
+)
 
-    # =========================
-    # MARKET INPUT
-    # =========================
-    market_price = st.number_input("Aktueller Marktpreis", value=18.0, step=0.01)
-    direction = st.radio("Richtung", ["Long", "Short"])
+event_level = st.selectbox(
+    "News-Level",
+    ["Keine Events", "Makro-News", "Krisen-News"]
+)
 
-    if direction == "Long":
-        pnl = (market_price - avg_price) * total_qty
-    else:
-        pnl = (avg_price - market_price) * total_qty
+# =========================
+# SCORE LOGIK
+# =========================
+if vix < 12:
+    vix_score = 10
+elif vix < 15:
+    vix_score = 20
+elif vix < 20:
+    vix_score = 35
+elif vix < 25:
+    vix_score = 55
+elif vix < 35:
+    vix_score = 75
+else:
+    vix_score = 95
 
-    pnl_percent = (pnl / (avg_price * total_qty)) * 100
+trend_score = {"Uptrend": 10, "Sideways": 30, "Downtrend": 50}[market_trend]
 
-    st.subheader("💰 PnL")
-    st.write(f"PnL: {pnl:.2f} €")
-    st.write(f"PnL %: {pnl_percent:.2f} %")
+structure_score = {
+    "Contango (normal)": 10,
+    "Flat": 40,
+    "Backwardation (Stress)": 70
+}[term_structure]
 
-    # =========================
-    # RISK
-    # =========================
-    st.write("---")
-    st.subheader("⚠️ Risiko")
+event_score = {
+    "Keine Events": 5,
+    "Makro-News": 25,
+    "Krisen-News": 60
+}[event_level]
 
-    account_size = st.number_input("Kontogröße (€)", value=10000)
-    stop_loss = st.number_input("Stop-Loss Preis", value=17.0, step=0.01)
+regime_score = (
+    0.5 * vix_score +
+    0.2 * trend_score +
+    0.2 * structure_score +
+    0.1 * event_score
+)
 
-    if direction == "Long":
-        risk = (avg_price - stop_loss) * total_qty
-    else:
-        risk = (stop_loss - avg_price) * total_qty
+# =========================
+# REGIME OUTPUT
+# =========================
+st.subheader("📊 Markt-Regime")
 
-    risk_percent = (risk / account_size) * 100
+if regime_score < 30:
+    regime = "CALM"
+    st.success(f"{regime} | {regime_score:.1f}")
 
-    st.write(f"Risiko bis Stop: {risk:.2f} €")
-    st.write(f"Risiko vom Konto: {risk_percent:.2f} %")
+elif regime_score < 50:
+    regime = "NORMAL"
+    st.info(f"{regime} | {regime_score:.1f}")
 
-    if risk_percent > 5:
-        st.warning("⚠️ Risiko über 5%")
+elif regime_score < 70:
+    regime = "STRESS"
+    st.warning(f"{regime} | {regime_score:.1f}")
 
-    # =========================
-    # POSITION SIZE ALERT (BASE)
-    # =========================
-    st.write("---")
-    st.subheader("📦 Positionskontrolle")
+else:
+    regime = "CRISIS"
+    st.error(f"{regime} | {regime_score:.1f}")
 
-    if total_qty > 1000:
-        st.error("⚠️ Über 1000 Stück Gesamtposition")
-    else:
-        st.success("Position im normalen Bereich")
+# =========================
+# REGIME CONTROLS
+# =========================
+st.subheader("⚙️ Risiko-Steuerung")
 
-    # =========================
-    # REGIME SYSTEM
-    # =========================
-    st.write("---")
-    st.subheader("📊 VIX Regime-System")
+if regime == "CALM":
+    factor = 1.0
+    allow_scaling = True
 
-    vix = st.number_input("VIX Level", value=18.0, step=0.1)
+elif regime == "NORMAL":
+    factor = 0.8
+    allow_scaling = True
 
-    market_trend = st.selectbox(
-        "Markttrend",
-        ["Uptrend", "Sideways", "Downtrend"]
-    )
+elif regime == "STRESS":
+    factor = 0.5
+    allow_scaling = False
 
-    term_structure = st.selectbox(
-        "VIX Struktur",
-        ["Contango (normal)", "Flat", "Backwardation (Stress)"]
-    )
+else:
+    factor = 0.2
+    allow_scaling = False
 
-    event_level = st.selectbox(
-        "News-/Event-Level",
-        ["Keine Events", "Makro-News", "Krisen-News (Banken/Krieg/Liquidität)"]
-    )
+adjusted_limit = total_qty * factor
 
-    # =========================
-    # SCORE CALCULATION
-    # =========================
-    if vix < 12:
-        vix_score = 10
-    elif vix < 15:
-        vix_score = 20
-    elif vix < 20:
-        vix_score = 35
-    elif vix < 25:
-        vix_score = 55
-    elif vix < 35:
-        vix_score = 75
-    else:
-        vix_score = 95
+st.write(f"Original Position: {total_qty}")
+st.write(f"Regime-adjustiertes Limit: {adjusted_limit:.0f}")
 
-    trend_score = {"Uptrend": 10, "Sideways": 30, "Downtrend": 50}[market_trend]
+if total_qty > adjusted_limit:
+    st.error("⚠️ Position zu groß für aktuelles Regime")
+else:
+    st.success("Position im erlaubten Bereich")
 
-    structure_score = {
-        "Contango (normal)": 10,
-        "Flat": 40,
-        "Backwardation (Stress)": 70
-    }[term_structure]
+if not allow_scaling:
+    st.warning("⚠️ Skalierung aktuell deaktiviert")
 
-    event_score = {
-        "Keine Events": 5,
-        "Makro-News": 25,
-        "Krisen-News (Banken/Krieg/Liquidität)": 60
-    }[event_level]
-
-    regime_score = (
-        0.5 * vix_score +
-        0.2 * trend_score +
-        0.2 * structure_score +
-        0.1 * event_score
-    )
-
-    # =========================
-    # REGIME OUTPUT
-    # =========================
-    st.subheader("🧠 Markt-Regime")
-
-    if regime_score < 30:
-        regime = "CALM"
-        st.success(f"{regime} | Score: {regime_score:.1f}")
-
-    elif regime_score < 50:
-        regime = "NORMAL"
-        st.info(f"{regime} | Score: {regime_score:.1f}")
-
-    elif regime_score < 70:
-        regime = "STRESS"
-        st.warning(f"{regime} | Score: {regime_score:.1f}")
-
-    else:
-        regime = "CRISIS"
-        st.error(f"{regime} | Score: {regime_score:.1f}")
-
-    # =========================
-    # STRATEGY CONTROL
-    # =========================
-    st.subheader("⚙️ Strategie-Steuerung")
-
-    if regime == "CALM":
-        max_position_factor = 1.0
-        allow_scaling = True
-
-    elif regime == "NORMAL":
-        max_position_factor = 0.8
-        allow_scaling = True
-
-    elif regime == "STRESS":
-        max_position_factor = 0.5
-        allow_scaling = False
-
-    else:
-        max_position_factor = 0.2
-        allow_scaling = False
-
-    adjusted_limit = 1000 * max_position_factor
-
-    st.write(f"Max erlaubte Position: {adjusted_limit:.0f} Stück")
-
-    if total_qty > adjusted_limit:
-        st.error("⚠️ Positionslimit überschritten (Regime)")
-    else:
-        st.success("Position innerhalb Limit")
-
-    if not allow_scaling:
-        st.warning("⚠️ Skalierung aktuell deaktiviert im Regime")
-
-    # =========================
-    # RESET
-    # =========================
-    st.write("---")
-
-    if st.button("Alles zurücksetzen"):
-        st.session_state.orders = []
+# =========================
+# BREAKDOWN CHECK (
