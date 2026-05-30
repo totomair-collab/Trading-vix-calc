@@ -1,1 +1,2 @@
 # Trading-vix-calc
+# editiert 
