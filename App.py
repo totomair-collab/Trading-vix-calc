@@ -1,5 +1,5 @@
 import streamlit as st
-import as pd
+import pandas as pd
 
 st.set_page_config(page_title="VIX Trading System", layout="centered")
 
