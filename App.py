@@ -1,14 +1,14 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="VIX Risk Control Panel", layout="centered")
+st.set_page_config(page_title="VIX Risk Control System", layout="centered")
 
-st.title("VIX Ladder System – Safe Mode Control Panel")
+st.title("VIX Ladder System – Optimized State Engine")
 
 # =========================
 # AUFBAU (FIX)
 # =========================
-st.subheader("📈 Aufbau (Stückzahlen)")
+st.subheader("📈 Aufbau (Stückzahlen, Stufe 1–8)")
 
 build = [
     {"stufe": 1, "vix": 18.3, "qty": 50},
@@ -27,9 +27,6 @@ st.dataframe(df_build)
 total_qty = df_build["qty"].sum()
 avg_price = (df_build["vix"] * df_build["qty"]).sum() / total_qty
 
-st.write(f"Gesamtposition: {total_qty}")
-st.write(f"Ø Einstieg: {avg_price:.2f}")
-
 # =========================
 # MARKT
 # =========================
@@ -37,102 +34,105 @@ st.subheader("📊 Markt")
 
 vix = st.number_input("Aktueller VIX", value=18.0, step=0.1)
 
-# =========================
-# EDITIERBARE ABBAU-TABELLE
-# =========================
-st.subheader("📉 Abbau-Logik (EDITIERBAR)")
+direction = st.radio("Richtung", ["Short", "Long"])
 
-default_exit = pd.DataFrame([
-    {"stufe": 1, "vix_zone": "26 → 24", "reduce_factor": 0.10},
-    {"stufe": 2, "vix_zone": "24 → 22.5", "reduce_factor": 0.25},
-    {"stufe": 3, "vix_zone": "22.5 → 21", "reduce_factor": 0.45},
-    {"stufe": 4, "vix_zone": "21 → 20", "reduce_factor": 0.65},
-    {"stufe": 5, "vix_zone": "20 → 18.5", "reduce_factor": 0.80},
-    {"stufe": 6, "vix_zone": "< 18.5", "reduce_factor": 1.00},
-])
+pnl = (avg_price - vix) * total_qty if direction == "Short" else (vix - avg_price) * total_qty
 
-exit_df = st.data_editor(
-    default_exit,
-    num_rows="dynamic",
-    use_container_width=True
-)
+st.write(f"Gesamtposition: {total_qty}")
+st.write(f"Ø Einstieg: {avg_price:.2f}")
+st.write(f"PnL: {pnl:.2f}")
 
 # =========================
-# SAFE MODE VALIDATION
+# AKTIVE AUFBAU STUFE
 # =========================
-st.subheader("🛡 Safe Mode Check")
-
-errors = []
-
-# 1. Stufenprüfung
-if not exit_df["stufe"].is_monotonic_increasing:
-    errors.append("Stufen sind nicht aufsteigend sortiert")
-
-# 2. Faktorprüfung
-if exit_df["reduce_factor"].min() < 0 or exit_df["reduce_factor"].max() > 1:
-    errors.append("Reduce-Faktor muss zwischen 0 und 1 liegen")
-
-# 3. Duplikate
-if exit_df["stufe"].duplicated().any():
-    errors.append("Doppelte Stufen vorhanden")
-
-if errors:
-    for e in errors:
-        st.error(e)
-    st.stop()
-else:
-    st.success("Abbau-Tabelle ist gültig")
+active_build = max([s["stufe"] for s in build if vix >= s["vix"]], default=0)
 
 # =========================
 # ABBAU LOGIK
 # =========================
-def get_allowed_factor(vix, df):
-    if vix > 26:
-        return float(df.loc[0, "reduce_factor"])
-    elif vix > 24:
-        return float(df.loc[1, "reduce_factor"])
-    elif vix > 22.5:
-        return float(df.loc[2, "reduce_factor"])
-    elif vix > 21:
-        return float(df.loc[3, "reduce_factor"])
-    elif vix > 20:
-        return float(df.loc[4, "reduce_factor"])
-    elif vix > 18.5:
-        return float(df.loc[5, "reduce_factor"])
+def get_exit_factor(v):
+    if v > 26:
+        return 0.0
+    elif v > 24:
+        return 0.10
+    elif v > 22.5:
+        return 0.25
+    elif v > 21:
+        return 0.45
+    elif v > 20:
+        return 0.65
+    elif v > 18.5:
+        return 0.80
     else:
-        return float(df.loc[5, "reduce_factor"])
+        return 1.0
 
-factor = get_allowed_factor(vix, exit_df)
-
+factor = get_exit_factor(vix)
 allowed_qty = total_qty * factor
 
-st.subheader("📉 Positionskontrolle")
+# =========================
+# AKTIVE ABBAU STUFE
+# =========================
+if vix > 26:
+    active_exit = 0
+elif vix > 24:
+    active_exit = 1
+elif vix > 22.5:
+    active_exit = 2
+elif vix > 21:
+    active_exit = 3
+elif vix > 20:
+    active_exit = 4
+elif vix > 18.5:
+    active_exit = 5
+else:
+    active_exit = 6
+
+# =========================
+# STATE ENGINE (NEU – WICHTIG)
+# =========================
+st.write("---")
+st.subheader("🧠 System State Engine")
+
+if vix <= 18.5:
+    state = "STABLE / FULL EXPOSURE OK"
+elif vix <= 21:
+    state = "BUILD PHASE"
+elif vix <= 24:
+    state = "STRESS PHASE"
+else:
+    state = "CRITICAL / DE-RISK"
+
+# =========================
+# DISPLAY STATE
+# =========================
+st.info(f"STATE: {state}")
+
+st.write(f"Aufbau-Stufe: {active_build}/8")
+st.write(f"Abbau-Stufe: {active_exit}/6")
+
+# =========================
+# RISK CONTROL
+# =========================
+st.subheader("⚙️ Risk Control")
+
 st.write(f"Erlaubte Position: {allowed_qty:.0f}")
 
 if total_qty > allowed_qty:
-    st.warning("⚠️ Position über Limit → reduzieren")
+    st.warning("⚠️ Position reduzieren")
 else:
     st.success("Position im Rahmen")
 
 # =========================
-# SYSTEM STATUS
+# SYSTEM INTERPRETATION (FINAL LAYER)
 # =========================
 st.write("---")
-st.subheader("🧠 Systemstatus")
+st.subheader("📊 Interpretation Layer")
 
-if vix <= 18.5:
-    st.success("Normalzone – volle Position erlaubt")
-elif vix <= 21:
-    st.info("Aufbau-/Haltezone")
-elif vix <= 24:
-    st.warning("Stresszone – vorsichtig reduzieren")
+if vix < 18.5:
+    st.success("ruhiger Markt – System arbeitet normal")
+elif vix < 21:
+    st.info("moderate Volatilität – kontrollierter Aufbau")
+elif vix < 24:
+    st.warning("erhöhte Volatilität – Risiko aktiv managen")
 else:
-    st.error("Extremzone – Risikoabbau aktiv")
-
-# =========================
-# DEBUG VIEW
-# =========================
-st.write("---")
-st.subheader("🔧 Debug Ansicht")
-
-st.dataframe(exit_df)
+    st.error("Stress / Krise – Kapital schützen wichtiger als Position")
