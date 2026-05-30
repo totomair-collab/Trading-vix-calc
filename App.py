@@ -1,14 +1,14 @@
-import streamlit as st
+    import streamlit as st
 import pandas as pd
 
 st.set_page_config(page_title="VIX Trading System", layout="centered")
 
-st.title("VIX Trading System (8-Stufen + Regime)")
+st.title("VIX Trading System – 8 Stufen + Regime")
 
 # =========================
-# 8-STUFEN PLAN
+# 8-STUFEN (EDITIERBAR)
 # =========================
-st.subheader("📊 8-Stufen-Plan (Strategie)")
+st.subheader("📊 8-Stufen-Strategie (editierbar)")
 
 default_data = {
     "vix": [18.29, 18.39, 18.59, 18.89, 19.29, 19.79, 20.39, 21.09],
@@ -21,12 +21,13 @@ df = st.data_editor(
     use_container_width=True
 )
 
-df = pd.DataFrame(stages)
-st.dataframe(df)
-
+# Berechnung
 total_qty = df["qty"].sum()
 total_cost = (df["vix"] * df["qty"]).sum()
 avg_price = total_cost / total_qty
+
+st.write("---")
+st.subheader("📌 Positionsdaten")
 
 st.write(f"Gesamtmenge: {total_qty}")
 st.write(f"Ø Einstieg: {avg_price:.2f}")
@@ -49,6 +50,7 @@ st.write(f"PnL: {pnl:.2f}")
 # =========================
 # REGIME INPUT
 # =========================
+st.write("---")
 st.subheader("🧠 Regime-System")
 
 vix = market_price
@@ -69,7 +71,7 @@ event_level = st.selectbox(
 )
 
 # =========================
-# SCORE LOGIK
+# SCORE SYSTEM
 # =========================
 if vix < 12:
     vix_score = 10
@@ -112,37 +114,34 @@ st.subheader("📊 Markt-Regime")
 
 if regime_score < 30:
     regime = "CALM"
-    st.success(f"{regime} | {regime_score:.1f}")
+    st.success(f"{regime} | Score: {regime_score:.1f}")
 
 elif regime_score < 50:
     regime = "NORMAL"
-    st.info(f"{regime} | {regime_score:.1f}")
+    st.info(f"{regime} | Score: {regime_score:.1f}")
 
 elif regime_score < 70:
     regime = "STRESS"
-    st.warning(f"{regime} | {regime_score:.1f}")
+    st.warning(f"{regime} | Score: {regime_score:.1f}")
 
 else:
     regime = "CRISIS"
-    st.error(f"{regime} | {regime_score:.1f}")
+    st.error(f"{regime} | Score: {regime_score:.1f}")
 
 # =========================
-# REGIME CONTROLS
+# REGIME STEUERUNG
 # =========================
 st.subheader("⚙️ Risiko-Steuerung")
 
 if regime == "CALM":
     factor = 1.0
     allow_scaling = True
-
 elif regime == "NORMAL":
     factor = 0.8
     allow_scaling = True
-
 elif regime == "STRESS":
     factor = 0.5
     allow_scaling = False
-
 else:
     factor = 0.2
     allow_scaling = False
@@ -150,7 +149,7 @@ else:
 adjusted_limit = total_qty * factor
 
 st.write(f"Original Position: {total_qty}")
-st.write(f"Regime-adjustiertes Limit: {adjusted_limit:.0f}")
+st.write(f"Regime-Limit: {adjusted_limit:.0f}")
 
 if total_qty > adjusted_limit:
     st.error("⚠️ Position zu groß für aktuelles Regime")
@@ -158,7 +157,17 @@ else:
     st.success("Position im erlaubten Bereich")
 
 if not allow_scaling:
-    st.warning("⚠️ Skalierung aktuell deaktiviert")
+    st.warning("⚠️ Skalierung deaktiviert im aktuellen Regime")
 
 # =========================
-# BREAKDOWN CHECK (
+# RISIKO-ALERT
+# =========================
+st.write("---")
+st.subheader("🚨 Risiko-Check")
+
+if vix > 25 and total_qty > 1000:
+    st.error("EXTREMES RISIKO: hohe Volatilität + große Position")
+elif vix > 20:
+    st.warning("Erhöhtes Volatilitätsrisiko")
+else:
+    st.success("Normales Umfeld")
