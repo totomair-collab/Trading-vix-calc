@@ -10,16 +10,16 @@ st.title("VIX Trading System (8-Stufen + Regime)")
 # =========================
 st.subheader("📊 8-Stufen-Plan (Strategie)")
 
-stages = [
-    {"vix": 18.29, "qty": 50},
-    {"vix": 18.39, "qty": 75},
-    {"vix": 18.59, "qty": 125},
-    {"vix": 18.89, "qty": 200},
-    {"vix": 19.29, "qty": 300},
-    {"vix": 19.79, "qty": 425},
-    {"vix": 20.39, "qty": 575},
-    {"vix": 21.09, "qty": 750},
-]
+default_data = {
+    "vix": [18.29, 18.39, 18.59, 18.89, 19.29, 19.79, 20.39, 21.09],
+    "qty": [50, 75, 125, 200, 300, 425, 575, 750]
+}
+
+df = st.data_editor(
+    pd.DataFrame(default_data),
+    num_rows="dynamic",
+    use_container_width=True
+)
 
 df = pd.DataFrame(stages)
 st.dataframe(df)
