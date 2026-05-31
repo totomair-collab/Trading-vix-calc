@@ -91,4 +91,69 @@ def close_all_if_regime_shift(old, new):
     if new < old:
         for p in st.session_state.positions:
             if p["side"] == "LONG":
-                p["status"] = "C
+                p["status"] = "CLOSED"
+
+# =========================
+# SIGNAL ENGINE
+# =========================
+def crossed(level, prev, current):
+    return prev < level <= current
+
+
+def process_ladder(ladder, side):
+    for _, row in ladder.iterrows():
+        if crossed(row["level"], prev_vix, vix):
+            add_position(side, row["level"], row["qty"])
+
+# =========================
+# EXECUTION
+# =========================
+process_ladder(short_ladder, "SHORT")
+process_ladder(long_ladder, "LONG")
+
+# =========================
+# REGIME ROTATION
+# =========================
+if "last_regime" not in st.session_state:
+    st.session_state.last_regime = None
+
+close_all_if_regime_shift(st.session_state.last_regime, regime)
+st.session_state.last_regime = regime
+
+# =========================
+# RISK ENGINE
+# =========================
+pnl, exposure = mark_to_market(vix)
+
+max_exposure = equity * max_leverage
+
+if abs(exposure) > max_exposure:
+    scale = max_exposure / abs(exposure)
+    pnl *= scale
+    exposure *= scale
+
+equity_now = equity + pnl
+st.session_state.equity_curve.append(equity_now)
+
+drawdown = min(st.session_state.equity_curve[-50:]) if len(st.session_state.equity_curve) > 10 else equity_now
+
+# =========================
+# OUTPUT
+# =========================
+st.subheader("Regime")
+st.write(regime)
+
+st.subheader("PnL (Unrealized + Realized simplified)")
+st.write(pnl)
+
+st.subheader("Exposure")
+st.write(exposure)
+
+st.subheader("Equity")
+st.write(equity_now)
+
+st.subheader("Drawdown")
+st.write(drawdown)
+
+st.subheader("Positions")
+st.write(st.session_state.positions)
