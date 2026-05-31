@@ -1,9 +1,9 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="VIX Regime Engine Pro", layout="wide")
+st.set_page_config(page_title="VIX Regime Risk Engine FULL", layout="wide")
 
-st.title("VIX Regime Engine (Enhanced Ladder Analytics)")
+st.title("VIX Regime Risk Engine – Full System")
 
 # =========================
 # INPUT
@@ -31,9 +31,9 @@ st.subheader("Regime")
 st.info(regime)
 
 # =========================
-# EDITABLE SHORT ENTRY
+# SHORT ENTRY LADDER
 # =========================
-st.subheader("📉 Short Entry Ladder (editable)")
+st.subheader("📉 Short Entry Ladder")
 
 short_entry = st.data_editor(
     pd.DataFrame({
@@ -44,9 +44,9 @@ short_entry = st.data_editor(
 )
 
 # =========================
-# EDITABLE LONG ENTRY
+# LONG ENTRY LADDER
 # =========================
-st.subheader("📈 Long Entry Ladder (editable)")
+st.subheader("📈 Long Entry Ladder")
 
 long_entry = st.data_editor(
     pd.DataFrame({
@@ -57,7 +57,7 @@ long_entry = st.data_editor(
 )
 
 # =========================
-# SHORT EXIT (optional)
+# SHORT EXIT LADDER
 # =========================
 st.subheader("📤 Short Exit Ladder")
 
@@ -70,9 +70,9 @@ short_exit = st.data_editor(
 )
 
 # =========================
-# HELPERS
+# FUNCTIONS
 # =========================
-def build_ladder(df):
+def build_table(df):
     df = df.copy()
     df["Notional"] = df["Qty"] * unit_value
     df["Accumulated_Qty"] = df["Qty"].cumsum()
@@ -82,11 +82,17 @@ def build_ladder(df):
 def active(df, v):
     return df[df["VIX"] <= v]
 
+def exit_reduction(df, v):
+    rows = df[df["VIX"] <= v]
+    if len(rows) == 0:
+        return 0
+    return rows["Reduce_%"].iloc[-1]
+
 # =========================
-# BUILD TABLES
+# TABLE BUILD
 # =========================
-short_table = build_ladder(short_entry)
-long_table = build_ladder(long_entry)
+short_table = build_table(short_entry)
+long_table = build_table(long_entry)
 
 short_active = active(short_table, vix)
 long_active = active(long_table, vix)
@@ -95,14 +101,15 @@ short_qty = short_active["Qty"].sum()
 long_qty = long_active["Qty"].sum()
 
 # =========================
-# REGIME LOGIC
+# REGIME BEHAVIOR
 # =========================
 if regime == "REGIME 1 (SHORT BUILD)":
     short_pos = short_qty
     long_pos = 0
 
 elif regime == "REGIME 2 (DE-RISK)":
-    short_pos = short_qty * 0.4
+    reduction = exit_reduction(short_exit, vix)
+    short_pos = short_qty * (1 - reduction)
     long_pos = 0
 
 else:
@@ -110,12 +117,12 @@ else:
     long_pos = long_qty
 
 # =========================
-# COST MODEL
+# COST MODEL (SPREAD)
 # =========================
 trade_costs = (short_pos + long_pos) * spread
 
 # =========================
-# EXPOSURE
+# EXPOSURE MODEL
 # =========================
 short_notional = short_pos * unit_value
 long_notional = long_pos * unit_value
@@ -123,7 +130,7 @@ long_notional = long_pos * unit_value
 net = long_notional - short_notional - trade_costs
 
 # =========================
-# RISK CONTROL
+# MARGIN CONTROL (1:10)
 # =========================
 if abs(net) > max_notional:
     scale = max_notional / abs(net)
@@ -138,22 +145,24 @@ st.subheader("📊 Exposure")
 
 st.write(f"Short Units: {short_pos:.0f}")
 st.write(f"Long Units: {long_pos:.0f}")
-st.write(f"Net Exposure: {net:.2f} €")
-st.write(f"Spread Costs: {trade_costs:.2f} €")
+st.write(f"Net Exposure (€): {net:.2f}")
+st.write(f"Spread Costs (€): {trade_costs:.2f}")
+st.write(f"Max Notional Allowed (€): {max_notional:.2f}")
 
 # =========================
-# TABLE OUTPUT
+# TABLES
 # =========================
-st.subheader("📉 Short Ladder (with accumulation)")
+st.subheader("📉 Short Ladder (with Accumulation)")
 st.dataframe(short_table)
 
-st.subheader("📈 Long Ladder (with accumulation)")
+st.subheader("📈 Long Ladder (with Accumulation)")
 st.dataframe(long_table)
 
 # =========================
 # STATUS
 # =========================
 st.subheader("Status")
+
 st.write(regime)
 
 if abs(net) > max_notional * 0.9:
