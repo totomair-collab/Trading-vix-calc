@@ -1,9 +1,10 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 
-st.set_page_config(page_title="VIX Regime Risk Engine FULL", layout="wide")
+st.set_page_config(page_title="VIX Regime Engine ADV", layout="wide")
 
-st.title("VIX Regime Risk Engine – Full System")
+st.title("VIX Regime Engine – Advanced Risk + PnL + Stress")
 
 # =========================
 # INPUT
@@ -16,6 +17,11 @@ unit_value = 100
 spread = 0.13
 
 max_notional = equity * leverage
+
+# simulated last VIX for velocity
+prev_vix = st.number_input("VIX vorheriger Wert (für Velocity)", value=17.5)
+
+vix_velocity = vix - prev_vix
 
 # =========================
 # REGIME
@@ -31,7 +37,7 @@ st.subheader("Regime")
 st.info(regime)
 
 # =========================
-# SHORT ENTRY LADDER
+# LADDERS (EDITABLE)
 # =========================
 st.subheader("📉 Short Entry Ladder")
 
@@ -43,9 +49,6 @@ short_entry = st.data_editor(
     num_rows="dynamic"
 )
 
-# =========================
-# LONG ENTRY LADDER
-# =========================
 st.subheader("📈 Long Entry Ladder")
 
 long_entry = st.data_editor(
@@ -56,9 +59,6 @@ long_entry = st.data_editor(
     num_rows="dynamic"
 )
 
-# =========================
-# SHORT EXIT LADDER
-# =========================
 st.subheader("📤 Short Exit Ladder")
 
 short_exit = st.data_editor(
@@ -70,9 +70,9 @@ short_exit = st.data_editor(
 )
 
 # =========================
-# FUNCTIONS
+# HELPERS
 # =========================
-def build_table(df):
+def build(df):
     df = df.copy()
     df["Notional"] = df["Qty"] * unit_value
     df["Accumulated_Qty"] = df["Qty"].cumsum()
@@ -89,10 +89,10 @@ def exit_reduction(df, v):
     return rows["Reduce_%"].iloc[-1]
 
 # =========================
-# TABLE BUILD
+# TABLES
 # =========================
-short_table = build_table(short_entry)
-long_table = build_table(long_entry)
+short_table = build(short_entry)
+long_table = build(long_entry)
 
 short_active = active(short_table, vix)
 long_active = active(long_table, vix)
@@ -101,15 +101,14 @@ short_qty = short_active["Qty"].sum()
 long_qty = long_active["Qty"].sum()
 
 # =========================
-# REGIME BEHAVIOR
+# REGIME LOGIC
 # =========================
 if regime == "REGIME 1 (SHORT BUILD)":
     short_pos = short_qty
     long_pos = 0
 
 elif regime == "REGIME 2 (DE-RISK)":
-    reduction = exit_reduction(short_exit, vix)
-    short_pos = short_qty * (1 - reduction)
+    short_pos = short_qty * (1 - exit_reduction(short_exit, vix))
     long_pos = 0
 
 else:
@@ -117,20 +116,20 @@ else:
     long_pos = long_qty
 
 # =========================
-# COST MODEL (SPREAD)
+# COSTS
 # =========================
-trade_costs = (short_pos + long_pos) * spread
+spread_costs = (short_pos + long_pos) * spread
 
 # =========================
-# EXPOSURE MODEL
+# EXPOSURE
 # =========================
 short_notional = short_pos * unit_value
 long_notional = long_pos * unit_value
 
-net = long_notional - short_notional - trade_costs
+net = long_notional - short_notional - spread_costs
 
 # =========================
-# MARGIN CONTROL (1:10)
+# MARGIN CONTROL
 # =========================
 if abs(net) > max_notional:
     scale = max_notional / abs(net)
@@ -139,33 +138,73 @@ if abs(net) > max_notional:
     net *= scale
 
 # =========================
+# PnL MODEL (SIMPLIFIED)
+# =========================
+# assumption: 1 VIX point move = 1% effect proxy
+pnl_short = short_notional * (19 - vix) * 0.01
+pnl_long = long_notional * (vix - 23) * 0.01
+
+pnl_total = pnl_short + pnl_long - spread_costs
+
+# =========================
+# BREAK-EVEN
+# =========================
+if short_notional > 0:
+    breakeven_short = 19  # anchor (simplified model)
+else:
+    breakeven_short = None
+
+if long_notional > 0:
+    breakeven_long = 23
+else:
+    breakeven_long = None
+
+# =========================
+# VIX VELOCITY (CRASH DETECTOR)
+# =========================
+st.subheader("⚡ VIX Velocity")
+
+st.write(f"VIX Change: {vix_velocity:.2f}")
+
+if vix_velocity > 1.5:
+    st.error("⚠️ VOLMAGEDDON WARNING – Spike detected")
+elif vix_velocity > 0.8:
+    st.warning("High volatility expansion")
+else:
+    st.success("Normal volatility regime")
+
+# =========================
 # OUTPUT
 # =========================
 st.subheader("📊 Exposure")
 
 st.write(f"Short Units: {short_pos:.0f}")
 st.write(f"Long Units: {long_pos:.0f}")
-st.write(f"Net Exposure (€): {net:.2f}")
-st.write(f"Spread Costs (€): {trade_costs:.2f}")
-st.write(f"Max Notional Allowed (€): {max_notional:.2f}")
+st.write(f"Net Exposure: {net:.2f} €")
+
+st.subheader("💰 PnL Simulation")
+
+st.write(f"PnL Short: {pnl_short:.2f} €")
+st.write(f"PnL Long: {pnl_long:.2f} €")
+st.write(f"Spread Costs: {spread_costs:.2f} €")
+st.write(f"Total PnL: {pnl_total:.2f} €")
+
+st.subheader("🎯 Break-even")
+
+st.write(f"Short BE: {breakeven_short}")
+st.write(f"Long BE: {breakeven_long}")
 
 # =========================
-# TABLES
+# TABLE OUTPUT
 # =========================
-st.subheader("📉 Short Ladder (with Accumulation)")
+st.subheader("📉 Short Ladder")
 st.dataframe(short_table)
 
-st.subheader("📈 Long Ladder (with Accumulation)")
+st.subheader("📈 Long Ladder")
 st.dataframe(long_table)
 
 # =========================
 # STATUS
 # =========================
-st.subheader("Status")
-
+st.subheader("Regime Status")
 st.write(regime)
-
-if abs(net) > max_notional * 0.9:
-    st.warning("Near Risk Limit")
-else:
-    st.success("Risk OK")
