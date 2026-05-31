@@ -1,31 +1,37 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="VIX Backtest Engine", layout="wide")
-st.title("VIX Quant Backtest Framework")
+st.set_page_config(page_title="VIX Full Quant System", layout="wide")
+st.title("VIX Full Portfolio + Backtest + Journal System")
 
 # =========================
 # STATE
 # =========================
-if "trades" not in st.session_state:
-    st.session_state.trades = []
+if "positions" not in st.session_state:
+    st.session_state.positions = []
+
+if "journal" not in st.session_state:
+    st.session_state.journal = []
 
 if "equity_curve" not in st.session_state:
     st.session_state.equity_curve = []
 
 # =========================
-# INPUT: SIMULATED SERIES
+# INPUT
 # =========================
-st.subheader("VIX Time Series (Backtest Input)")
+st.sidebar.header("Simulation Settings")
 
-vix_data = st.data_editor(
+initial_equity = st.sidebar.number_input("Initial Equity", value=10000)
+time_step = st.sidebar.number_input("Time Step (days)", value=1)
+
+vix_series = st.data_editor(
     pd.DataFrame({
+        "Day": list(range(1, 12)),
         "VIX": [17.2, 17.5, 17.8, 18.2, 18.6, 19.1, 19.6, 20.2, 21.5, 23.0, 25.0]
     }),
-    num_rows="dynamic"
+    num_rows="dynamic",
+    key="series"
 )
-
-equity = st.number_input("Initial Equity", value=10000)
 
 # =========================
 # REGIME
@@ -40,89 +46,122 @@ def regime(v):
 leverage_map = {1: 10, 2: 6, 3: 3}
 
 # =========================
-# LADDER (FIXED STRATEGY MODEL)
+# TABLES (ENTRY STRUCTURE)
 # =========================
-short_levels = [(17.25, 20), (17.5, 35), (18.0, 50), (18.5, 80), (19.0, 120)]
-long_levels  = [(23.0, 30), (24.0, 60), (25.0, 100), (26.0, 140)]
+short_table = pd.DataFrame({
+    "Level": [17.25, 17.5, 18.0, 18.5, 19.0],
+    "Qty":   [20, 35, 50, 80, 120]
+})
+
+long_table = pd.DataFrame({
+    "Level": [23, 24, 25, 26, 27],
+    "Qty":   [30, 60, 100, 140, 200]
+})
+
+st.subheader("Short Entry Table")
+st.dataframe(short_table)
+
+st.subheader("Long Entry Table")
+st.dataframe(long_table)
 
 # =========================
-# BACKTEST ENGINE
+# CORE FUNCTIONS
 # =========================
-positions = []
-equity_curve = [equity]
-
-def add_trade(side, entry, qty):
-    positions.append({
+def add_position(side, entry, qty, day):
+    st.session_state.positions.append({
         "side": side,
         "entry": entry,
         "qty": qty,
+        "day": day,
         "status": "OPEN"
     })
 
-def close_by_regime(old, new):
-    if old is None:
-        return
+    st.session_state.journal.append({
+        "event": "ENTRY",
+        "side": side,
+        "entry": entry,
+        "qty": qty,
+        "day": day
+    })
 
-    if new > old:
-        for p in positions:
-            if p["side"] == "SHORT":
-                p["status"] = "CLOSED"
 
-    if new < old:
-        for p in positions:
-            if p["side"] == "LONG":
-                p["status"] = "CLOSED"
+def close_positions(side, day, vix):
+    for p in st.session_state.positions:
+        if p["side"] == side and p["status"] == "OPEN":
+            p["status"] = "CLOSED"
 
-def pnl(vix):
-    total = 0
-    for p in positions:
-        if p["status"] != "CLOSED":
+            pnl = (vix - p["entry"]) * p["qty"] if side == "LONG" else (p["entry"] - vix) * p["qty"]
+
+            st.session_state.journal.append({
+                "event": "EXIT",
+                "side": side,
+                "entry": p["entry"],
+                "exit": vix,
+                "qty": p["qty"],
+                "pnl": pnl,
+                "day": day
+            })
+
+
+def mark_to_market(vix):
+    pnl = 0
+    exposure = 0
+
+    for p in st.session_state.positions:
+        if p["status"] != "OPEN":
             continue
 
         if p["side"] == "LONG":
-            total += (vix - p["entry"]) * p["qty"]
+            pnl += (vix - p["entry"]) * p["qty"]
+            exposure += p["entry"] * p["qty"]
         else:
-            total += (p["entry"] - vix) * p["qty"]
-    return total
+            pnl += (p["entry"] - vix) * p["qty"]
+            exposure -= p["entry"] * p["qty"]
+
+    return pnl, exposure
 
 # =========================
-# SIMULATION LOOP
+# BACKTEST LOOP
 # =========================
 prev_vix = None
-last_regime = None
 
-for i, row in vix_data.iterrows():
+for _, row in vix_series.iterrows():
     vix = row["VIX"]
+    day = row["Day"]
     reg = regime(vix)
 
     if prev_vix is not None:
 
-        # signals
-        for lvl, qty in short_levels:
-            if prev_vix < lvl <= vix:
-                add_trade("SHORT", lvl, qty)
+        # ENTRY LOGIC
+        for _, r in short_table.iterrows():
+            if prev_vix < r["Level"] <= vix:
+                add_position("SHORT", r["Level"], r["Qty"], day)
 
-        for lvl, qty in long_levels:
-            if prev_vix < lvl <= vix:
-                add_trade("LONG", lvl, qty)
+        for _, r in long_table.iterrows():
+            if prev_vix < r["Level"] <= vix:
+                add_position("LONG", r["Level"], r["Qty"], day)
 
-        # regime change logic
-        close_by_regime(last_regime, reg)
+        # EXIT LOGIC (REGIME BASED)
+        if reg == 3:
+            close_positions("SHORT", day, vix)
 
-    # valuation
-    current_pnl = pnl(vix)
-    equity_curve.append(equity + current_pnl)
+        if reg == 1:
+            close_positions("LONG", day, vix)
+
+    pnl, exposure = mark_to_market(vix)
+
+    st.session_state.equity_curve.append(initial_equity + pnl)
 
     prev_vix = vix
-    last_regime = reg
 
 # =========================
-# METRICS
+# RESULTS
 # =========================
-final_equity = equity_curve[-1]
-max_dd = min(equity_curve)
+positions_df = pd.DataFrame(st.session_state.positions)
+journal_df = pd.DataFrame(st.session_state.journal)
 
-trades_df = pd.DataFrame(positions)
+final_equity = st.session_state.equity_curve[-1]
+max_dd = min(st.session_state.equity_curve)
 
 # =========================
 # OUTPUT
@@ -130,11 +169,14 @@ trades_df = pd.DataFrame(positions)
 st.subheader("Final Equity")
 st.write(final_equity)
 
-st.subheader("Max Drawdown (raw)")
+st.subheader("Equity Curve")
+st.write(st.session_state.equity_curve)
+
+st.subheader("Max Drawdown")
 st.write(max_dd)
 
-st.subheader("Equity Curve")
-st.write(equity_curve)
+st.subheader("Positions")
+st.dataframe(positions_df)
 
-st.subheader("Trades")
-st.dataframe(trades_df)
+st.subheader("Trade Journal (Training Diary)")
+st.dataframe(journal_df)
