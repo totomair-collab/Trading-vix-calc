@@ -153,4 +153,54 @@ long_pnl, long_unreal = calc_pnl(long_trades, vix)
 total_trades = len(short_trades) + len(long_trades)
 spread_costs = total_trades * spread
 
-net_pnl = short_pnl +
+net_pnl = short_pnl + long_pnl + short_unreal + long_unreal - spread_costs
+
+# =========================
+# EXPOSURE
+# =========================
+short_exposure = short_trades["Qty"].sum()
+long_exposure = long_trades["Qty"].sum()
+
+short_notional = short_exposure * unit_value
+long_notional = long_exposure * unit_value
+
+net_exposure = long_notional - short_notional
+
+# =========================
+# RISK CONTROL
+# =========================
+if abs(net_exposure) > max_notional:
+    scale = max_notional / abs(net_exposure)
+    net_exposure *= scale
+
+# =========================
+# OUTPUT
+# =========================
+st.subheader("📊 Exposure")
+
+st.write(f"Short Units: {short_exposure:.0f}")
+st.write(f"Long Units: {long_exposure:.0f}")
+st.write(f"Net Exposure: {net_exposure:.2f} €")
+
+st.subheader("💰 PnL (REAL TRADE MODEL)")
+
+st.write(f"Short Realized PnL: {short_pnl:.2f} €")
+st.write(f"Long Realized PnL: {long_pnl:.2f} €")
+st.write(f"Unrealized PnL: {(short_unreal + long_unreal):.2f} €")
+st.write(f"Spread Costs: {spread_costs:.2f} €")
+st.write(f"Net PnL: {net_pnl:.2f} €")
+
+# =========================
+# TABLES
+# =========================
+st.subheader("📉 Short Trades")
+st.dataframe(short_trades)
+
+st.subheader("📈 Long Trades")
+st.dataframe(long_trades)
+
+# =========================
+# STATUS
+# =========================
+st.subheader("Status")
+st.write(regime)
