@@ -1,11 +1,12 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="VIX Engine", layout="wide")
-st.title("VIX Event Engine (Crash Safe)")
+st.set_page_config(page_title="VIX Trading Engine", layout="wide")
+
+st.title("VIX Event Engine – Full Stable Version")
 
 # =========================
-# STATE
+# SESSION STATE
 # =========================
 if "short_trades" not in st.session_state:
     st.session_state.short_trades = pd.DataFrame(columns=[
@@ -18,38 +19,53 @@ if "long_trades" not in st.session_state:
     ])
 
 # =========================
-# INPUT
+# INPUTS (WICHTIG: ZEIT WIEDER DRIN)
 # =========================
-vix = st.number_input("Current VIX", value=18.0)
-prev_vix = st.number_input("Previous VIX", value=17.5)
-equity = st.number_input("Capital", value=10000)
+vix = st.number_input("Aktueller VIX", value=18.0, step=0.1)
+prev_vix = st.number_input("Vorheriger VIX", value=17.5, step=0.1)
+
+session_hours = st.number_input("Session Dauer (Stunden)", value=1.0, step=0.5)
+
+equity = st.number_input("Kapital (€)", value=10000)
 
 unit_value = 100
 spread = 0.13
 max_notional = equity * 10
 
 # =========================
-# LADDERS
+# LADDERS (MIT NAMEN WIEDER SAUBER)
 # =========================
-short_ladder = st.data_editor(pd.DataFrame({
-    "Level": [17.25, 17.35, 17.5, 17.7, 17.95, 18.25, 18.6, 19.0, 19.5],
-    "Qty": [20, 25, 35, 50, 70, 95, 130, 180, 250]
-}), num_rows="dynamic")
+st.subheader("Short Entry Tabelle")
 
-long_ladder = st.data_editor(pd.DataFrame({
-    "Level": [23, 24, 25, 26, 27, 28, 30],
-    "Qty": [20, 40, 70, 100, 140, 180, 250]
-}), num_rows="dynamic")
+short_ladder = st.data_editor(
+    pd.DataFrame({
+        "VIX_Level": [17.25, 17.35, 17.5, 17.7, 17.95, 18.25, 18.6, 19.0, 19.5],
+        "Qty": [20, 25, 35, 50, 70, 95, 130, 180, 250]
+    }),
+    num_rows="dynamic",
+    key="short_table"
+)
+
+st.subheader("Long Entry Tabelle")
+
+long_ladder = st.data_editor(
+    pd.DataFrame({
+        "VIX_Level": [23, 24, 25, 26, 27, 28, 30],
+        "Qty": [20, 40, 70, 100, 140, 180, 250]
+    }),
+    num_rows="dynamic",
+    key="long_table"
+)
 
 # =========================
-# FUNCTIONS
+# LOGIC
 # =========================
 def crossed(level, prev, current):
     return prev < level <= current
 
 
 def add_trade(store, level, qty, direction):
-    trade_id = direction + "_" + str(level)
+    trade_id = f"{direction}_{level}"
 
     if trade_id in store["TradeID"].values:
         return store
@@ -66,12 +82,12 @@ def add_trade(store, level, qty, direction):
     return pd.concat([store, new_row], ignore_index=True)
 
 
-def apply_events_loop(ladder, prev, current, direction, store):
+def apply_events(ladder, prev, current, direction, store):
     if ladder is None or len(ladder) == 0:
         return store
 
     for i in range(len(ladder)):
-        level = ladder.iloc[i]["Level"]
+        level = ladder.iloc[i]["VIX_Level"]
         qty = ladder.iloc[i]["Qty"]
 
         if crossed(level, prev, current):
@@ -87,11 +103,13 @@ def apply_exit(df, vix):
     df = df.copy()
 
     for i in range(len(df)):
-        if df.loc[i, "Direction"] == "SHORT" and vix >= 20:
-            df.loc[i, "Status"] = "CLOSED"
+        if df.loc[i, "Direction"] == "SHORT":
+            if vix >= 20:
+                df.loc[i, "Status"] = "CLOSED"
 
-        if df.loc[i, "Direction"] == "LONG" and vix < 23:
-            df.loc[i, "Status"] = "CLOSED"
+        if df.loc[i, "Direction"] == "LONG":
+            if vix < 23:
+                df.loc[i, "Status"] = "CLOSED"
 
     return df
 
@@ -122,15 +140,25 @@ def pnl(df, vix):
 
     return total
 
-# =========================
-# EXECUTION (NO BROKEN BRACKETS)
-# =========================
 
-tmp_short = apply_events_loop(short_ladder, prev_vix, vix, "SHORT", st.session_state.short_trades)
-st.session_state.short_trades = tmp_short
+# =========================
+# ENGINE EXECUTION (STABIL)
+# =========================
+st.session_state.short_trades = apply_events(
+    short_ladder,
+    prev_vix,
+    vix,
+    "SHORT",
+    st.session_state.short_trades
+)
 
-tmp_long = apply_events_loop(long_ladder, prev_vix, vix, "LONG", st.session_state.long_trades)
-st.session_state.long_trades = tmp_long
+st.session_state.long_trades = apply_events(
+    long_ladder,
+    prev_vix,
+    vix,
+    "LONG",
+    st.session_state.long_trades
+)
 
 st.session_state.short_trades = apply_exit(st.session_state.short_trades, vix)
 st.session_state.long_trades = apply_exit(st.session_state.long_trades, vix)
@@ -153,14 +181,18 @@ net_pnl = pnl(st.session_state.short_trades, vix) + pnl(st.session_state.long_tr
 # =========================
 # RISK CAP
 # =========================
-max_notional = equity * 10
-
 if abs(net_exposure) > max_notional:
     net_exposure = max_notional * (1 if net_exposure > 0 else -1)
 
 # =========================
 # OUTPUT
 # =========================
+st.subheader("📊 Session Daten")
+
+st.write(f"Session Dauer: {session_hours} Stunden")
+st.write(f"VIX: {vix}")
+st.write(f"Vorheriger VIX: {prev_vix}")
+
 st.subheader("Exposure")
 st.write(net_exposure)
 
@@ -168,8 +200,8 @@ st.subheader("PnL")
 st.write(net_pnl)
 st.write(spread_costs)
 
-st.subheader("Trades Short")
+st.subheader("Short Trades Tabelle")
 st.dataframe(st.session_state.short_trades)
 
-st.subheader("Trades Long")
+st.subheader("Long Trades Tabelle")
 st.dataframe(st.session_state.long_trades)
