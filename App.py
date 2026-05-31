@@ -3,16 +3,17 @@ import pandas as pd
 
 st.set_page_config(page_title="VIX Regime Engine Pro", layout="wide")
 
-st.title("VIX Regime Engine (Editable + Spread + Accumulation)")
+st.title("VIX Regime Engine (Enhanced Ladder Analytics)")
 
 # =========================
 # INPUT
 # =========================
 vix = st.number_input("Aktueller VIX", value=18.0, step=0.1)
 equity = st.number_input("Kapital (€)", value=10000)
-leverage = 10
 
-spread = 0.13  # FIXED spread per trade
+leverage = 10
+unit_value = 100
+spread = 0.13
 
 max_notional = equity * leverage
 
@@ -30,9 +31,9 @@ st.subheader("Regime")
 st.info(regime)
 
 # =========================
-# SHORT ENTRY LADDER (EDITABLE)
+# EDITABLE SHORT ENTRY
 # =========================
-st.subheader("📉 Short Entry Ladder")
+st.subheader("📉 Short Entry Ladder (editable)")
 
 short_entry = st.data_editor(
     pd.DataFrame({
@@ -43,9 +44,9 @@ short_entry = st.data_editor(
 )
 
 # =========================
-# LONG ENTRY LADDER (EDITABLE)
+# EDITABLE LONG ENTRY
 # =========================
-st.subheader("📈 Long Entry Ladder")
+st.subheader("📈 Long Entry Ladder (editable)")
 
 long_entry = st.data_editor(
     pd.DataFrame({
@@ -56,7 +57,7 @@ long_entry = st.data_editor(
 )
 
 # =========================
-# SHORT EXIT LADDER
+# SHORT EXIT (optional)
 # =========================
 st.subheader("📤 Short Exit Ladder")
 
@@ -71,22 +72,24 @@ short_exit = st.data_editor(
 # =========================
 # HELPERS
 # =========================
-def active(df, v):
-    return df[df["VIX"] <= v].copy()
-
-def add_accumulated(df):
+def build_ladder(df):
     df = df.copy()
+    df["Notional"] = df["Qty"] * unit_value
     df["Accumulated_Qty"] = df["Qty"].cumsum()
+    df["Accumulated_Notional"] = df["Notional"].cumsum()
     return df
 
-# =========================
-# ACTIVE DATA
-# =========================
-short_active = active(short_entry, vix)
-long_active = active(long_entry, vix)
+def active(df, v):
+    return df[df["VIX"] <= v]
 
-short_active = add_accumulated(short_active)
-long_active = add_accumulated(long_active)
+# =========================
+# BUILD TABLES
+# =========================
+short_table = build_ladder(short_entry)
+long_table = build_ladder(long_entry)
+
+short_active = active(short_table, vix)
+long_active = active(long_table, vix)
 
 short_qty = short_active["Qty"].sum()
 long_qty = long_active["Qty"].sum()
@@ -107,33 +110,26 @@ else:
     long_pos = long_qty
 
 # =========================
-# COST MODEL (SPREAD)
+# COST MODEL
 # =========================
-total_trades = short_pos + long_pos
-
-costs = total_trades * spread
+trade_costs = (short_pos + long_pos) * spread
 
 # =========================
-# RISK MODEL
+# EXPOSURE
 # =========================
-unit_value = 100
-
 short_notional = short_pos * unit_value
 long_notional = long_pos * unit_value
 
-net = long_notional - short_notional
-
-# adjust for costs
-net_after_costs = net - costs
+net = long_notional - short_notional - trade_costs
 
 # =========================
-# LIMIT CONTROL
+# RISK CONTROL
 # =========================
-if abs(net_after_costs) > max_notional:
-    scale = max_notional / abs(net_after_costs)
+if abs(net) > max_notional:
+    scale = max_notional / abs(net)
     short_notional *= scale
     long_notional *= scale
-    net_after_costs *= scale
+    net *= scale
 
 # =========================
 # OUTPUT
@@ -142,26 +138,25 @@ st.subheader("📊 Exposure")
 
 st.write(f"Short Units: {short_pos:.0f}")
 st.write(f"Long Units: {long_pos:.0f}")
+st.write(f"Net Exposure: {net:.2f} €")
+st.write(f"Spread Costs: {trade_costs:.2f} €")
 
-st.write(f"Net Exposure: {net_after_costs:.0f} €")
-st.write(f"Spread Costs: {costs:.2f} €")
+# =========================
+# TABLE OUTPUT
+# =========================
+st.subheader("📉 Short Ladder (with accumulation)")
+st.dataframe(short_table)
 
-st.subheader("📉 Tabellen (mit Akkumulation)")
-
-st.write("Short Active")
-st.dataframe(short_active)
-
-st.write("Long Active")
-st.dataframe(long_active)
+st.subheader("📈 Long Ladder (with accumulation)")
+st.dataframe(long_table)
 
 # =========================
 # STATUS
 # =========================
 st.subheader("Status")
-
 st.write(regime)
 
-if abs(net_after_costs) > max_notional * 0.9:
-    st.warning("Nahe am Risk Limit")
+if abs(net) > max_notional * 0.9:
+    st.warning("Near Risk Limit")
 else:
-    st.success("Risk ok")
+    st.success("Risk OK")
