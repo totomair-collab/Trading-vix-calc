@@ -1,28 +1,25 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="VIX Safe Event Engine", layout="wide")
+st.set_page_config(page_title="VIX Event Engine", layout="wide")
 
-st.title("VIX Event Engine – Safe Architecture Version")
-
-# =========================
-# SESSION STATE
-# =========================
-def init_state():
-    if "short_trades" not in st.session_state:
-        st.session_state.short_trades = pd.DataFrame(columns=[
-            "TradeID", "Entry_VIX", "Qty", "Direction", "Entry_Price", "Status"
-        ])
-
-    if "long_trades" not in st.session_state:
-        st.session_state.long_trades = pd.DataFrame(columns=[
-            "TradeID", "Entry_VIX", "Qty", "Direction", "Entry_Price", "Status"
-        ])
-
-init_state()
+st.title("VIX Event-Driven Trading Engine (Stable)")
 
 # =========================
-# INPUTS
+# STATE INIT
+# =========================
+if "short_trades" not in st.session_state:
+    st.session_state.short_trades = pd.DataFrame(columns=[
+        "TradeID", "Entry_VIX", "Qty", "Direction", "Entry_Price", "Status"
+    ])
+
+if "long_trades" not in st.session_state:
+    st.session_state.long_trades = pd.DataFrame(columns=[
+        "TradeID", "Entry_VIX", "Qty", "Direction", "Entry_Price", "Status"
+    ])
+
+# =========================
+# INPUT
 # =========================
 vix = st.number_input("Current VIX", value=18.0, step=0.1)
 prev_vix = st.number_input("Previous VIX", value=17.5, step=0.1)
@@ -30,6 +27,7 @@ equity = st.number_input("Capital (€)", value=10000)
 
 unit_value = 100
 spread = 0.13
+
 max_notional = equity * 10
 
 # =========================
@@ -56,17 +54,17 @@ long_ladder = st.data_editor(
 )
 
 # =========================
-# CORE UTILITIES
+# LOGIC HELPERS
 # =========================
 def crossed(level, prev, current):
     return prev < level <= current
 
 
-def make_trade(trades, level, qty, direction):
-    trade_id = direction + "_" + str(level)
+def add_trade(store, level, qty, direction):
+    trade_id = f"{direction}_{level}"
 
-    if trade_id in trades["TradeID"].values:
-        return trades
+    if trade_id in store["TradeID"].values:
+        return store
 
     new_trade = pd.DataFrame([{
         "TradeID": trade_id,
@@ -77,7 +75,7 @@ def make_trade(trades, level, qty, direction):
         "Status": "OPEN"
     }])
 
-    return pd.concat([trades, new_trade], ignore_index=True)
+    return pd.concat([store, new_trade], ignore_index=True)
 
 
 def apply_events(ladder, prev, current, direction, store):
@@ -89,29 +87,27 @@ def apply_events(ladder, prev, current, direction, store):
         qty = ladder.iloc[i]["Qty"]
 
         if crossed(level, prev, current):
-            store = make_trade(store, level, qty, direction)
+            store = add_trade(store, level, qty, direction)
 
     return store
 
 
-def apply_exit(trades, vix):
-    if trades is None or len(trades) == 0:
-        return trades
+def apply_exit(df, vix):
+    if df is None or len(df) == 0:
+        return df
 
-    trades = trades.copy()
+    df = df.copy()
 
-    for i in range(len(trades)):
-        direction = trades.iloc[i]["Direction"]
-
-        if direction == "SHORT":
+    for i in range(len(df)):
+        if df.loc[i, "Direction"] == "SHORT":
             if vix >= 20:
-                trades.loc[i, "Status"] = "CLOSED"
+                df.loc[i, "Status"] = "CLOSED"
 
-        if direction == "LONG":
+        if df.loc[i, "Direction"] == "LONG":
             if vix < 23:
-                trades.loc[i, "Status"] = "CLOSED"
+                df.loc[i, "Status"] = "CLOSED"
 
-    return trades
+    return df
 
 
 def open_qty(df):
@@ -124,7 +120,7 @@ def calc_pnl(df, vix):
     if df is None or len(df) == 0:
         return 0
 
-    pnl_total = 0
+    pnl = 0
 
     for _, t in df.iterrows():
         if t["Status"] != "CLOSED":
@@ -134,47 +130,18 @@ def calc_pnl(df, vix):
         qty = t["Qty"]
 
         if t["Direction"] == "SHORT":
-            pnl_total += (entry - vix) * qty * 0.01
+            pnl += (entry - vix) * qty * 0.01
         else:
-            pnl_total += (vix - entry) * qty * 0.01
+            pnl += (vix - entry) * qty * 0.01
 
-    return pnl_total
+    return pnl
 
 # =========================
-# APPLY ENGINE
+# EXECUTION ENGINE
 # =========================
 st.session_state.short_trades = apply_events(
     short_ladder,
     prev_vix,
     vix,
     "SHORT",
-    st.session_state.short_trades
-)
-
-st.session_state.long_trades = apply_events(
-    long_ladder,
-    prev_vix,
-    vix,
-    "LONG",
-    st.session_state.long_trades
-)
-
-st.session_state.short_trades = apply_exit(st.session_state.short_trades, vix)
-st.session_state.long_trades = apply_exit(st.session_state.long_trades, vix)
-
-# =========================
-# METRICS
-# =========================
-short_qty = open_qty(st.session_state.short_trades)
-long_qty = open_qty(st.session_state.long_trades)
-
-short_notional = short_qty * unit_value
-long_notional = long_qty * unit_value
-
-net_exposure = long_notional - short_notional
-
-trade_count = len(st.session_state.short_trades) + len(st.session_state.long_trades)
-spread_costs = trade_count * spread
-
-net_pnl = (
-    calc_pnl(st.session_state.short_trades
+    st
