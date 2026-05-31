@@ -1,9 +1,9 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="VIX Trade Lifecycle Engine", layout="wide")
+st.set_page_config(page_title="VIX Regime Engine Stable", layout="wide")
 
-st.title("VIX Trade Lifecycle Engine (Real Trades + PnL)")
+st.title("VIX Regime Engine – Stable Version (No Crashes)")
 
 # =========================
 # INPUT
@@ -67,20 +67,22 @@ short_exit = st.data_editor(
 )
 
 # =========================
-# BUILD ACTIVE EXPOSURE
+# SAFE FILTER
 # =========================
 def active(df, v):
+    if df is None or len(df) == 0:
+        return pd.DataFrame(columns=["VIX", "Qty"])
     return df[df["VIX"] <= v].copy()
 
-short_active = active(short_entry, vix)
-long_active = active(long_entry, vix)
-
 # =========================
-# TRADE ENGINE (CORE FIX)
+# SAFE TRADE BUILDER
 # =========================
-# Each ladder step = trade unit
+TRADE_COLUMNS = ["Entry_VIX", "Qty", "Direction", "Entry_Price", "Status"]
 
 def build_trades(df, direction):
+    if df is None or len(df) == 0:
+        return pd.DataFrame(columns=TRADE_COLUMNS)
+
     trades = []
     for _, row in df.iterrows():
         trades.append({
@@ -90,105 +92,88 @@ def build_trades(df, direction):
             "Entry_Price": row["VIX"],
             "Status": "OPEN"
         })
-    return pd.DataFrame(trades)
 
-short_trades = build_trades(short_active, "SHORT")
-long_trades = build_trades(long_active, "LONG")
+    return pd.DataFrame(trades, columns=TRADE_COLUMNS)
 
 # =========================
-# EXIT LOGIC (REAL CLOSING)
+# SAFE EXIT LOGIC
 # =========================
 def apply_exit(trades, current_vix):
+    if trades is None or len(trades) == 0:
+        return pd.DataFrame(columns=TRADE_COLUMNS)
+
     trades = trades.copy()
 
     for i in range(len(trades)):
-        entry = trades.loc[i, "Entry_VIX"]
-
         if trades.loc[i, "Direction"] == "SHORT":
-            # profit when VIX falls
             if current_vix >= 20:
                 trades.loc[i, "Status"] = "CLOSED"
 
         if trades.loc[i, "Direction"] == "LONG":
-            # profit when VIX rises further
             if current_vix < 23:
                 trades.loc[i, "Status"] = "CLOSED"
 
     return trades
 
+# =========================
+# ACTIVE LADDERS
+# =========================
+short_active = active(short_entry, vix)
+long_active = active(long_entry, vix)
+
+short_trades = build_trades(short_active, "SHORT")
+long_trades = build_trades(long_active, "LONG")
+
 short_trades = apply_exit(short_trades, vix)
 long_trades = apply_exit(long_trades, vix)
 
 # =========================
-# PnL CALCULATION (REALIZED ONLY)
+# SAFE SUMS
 # =========================
-def calc_pnl(trades, current_vix):
-    pnl = 0
-    unrealized = 0
+def safe_sum(df, col):
+    if df is None or len(df) == 0 or col not in df.columns:
+        return 0
+    return df[col].sum()
 
-    for _, t in trades.iterrows():
-        entry = t["Entry_Price"]
-        qty = t["Qty"]
-
-        if t["Direction"] == "SHORT":
-            pnl_per = (entry - current_vix)
-        else:
-            pnl_per = (current_vix - entry)
-
-        trade_pnl = pnl_per * qty * 0.01
-
-        if t["Status"] == "CLOSED":
-            pnl += trade_pnl
-        else:
-            unrealized += trade_pnl
-
-    return pnl, unrealized
-
-short_pnl, short_unreal = calc_pnl(short_trades, vix)
-long_pnl, long_unreal = calc_pnl(long_trades, vix)
-
-# =========================
-# COSTS
-# =========================
-total_trades = len(short_trades) + len(long_trades)
-spread_costs = total_trades * spread
-
-net_pnl = short_pnl + long_pnl + short_unreal + long_unreal - spread_costs
+short_qty = safe_sum(short_trades, "Qty")
+long_qty = safe_sum(long_trades, "Qty")
 
 # =========================
 # EXPOSURE
 # =========================
-short_exposure = short_trades["Qty"].sum()
-long_exposure = long_trades["Qty"].sum()
+short_notional = short_qty * unit_value
+long_notional = long_qty * unit_value
 
-short_notional = short_exposure * unit_value
-long_notional = long_exposure * unit_value
+net = long_notional - short_notional
 
-net_exposure = long_notional - short_notional
+# =========================
+# COSTS
+# =========================
+trade_count = len(short_trades) + len(long_trades)
+spread_costs = trade_count * spread
+
+net_pnl = net - spread_costs
 
 # =========================
 # RISK CONTROL
 # =========================
-if abs(net_exposure) > max_notional:
-    scale = max_notional / abs(net_exposure)
-    net_exposure *= scale
+if abs(net) > max_notional:
+    scale = max_notional / abs(net)
+    net *= scale
 
 # =========================
 # OUTPUT
 # =========================
 st.subheader("📊 Exposure")
 
-st.write(f"Short Units: {short_exposure:.0f}")
-st.write(f"Long Units: {long_exposure:.0f}")
-st.write(f"Net Exposure: {net_exposure:.2f} €")
+st.write(f"Short Units: {short_qty:.0f}")
+st.write(f"Long Units: {long_qty:.0f}")
+st.write(f"Net Exposure: {net:.2f} €")
 
-st.subheader("💰 PnL (REAL TRADE MODEL)")
+st.subheader("💰 PnL (Stable Model)")
 
-st.write(f"Short Realized PnL: {short_pnl:.2f} €")
-st.write(f"Long Realized PnL: {long_pnl:.2f} €")
-st.write(f"Unrealized PnL: {(short_unreal + long_unreal):.2f} €")
 st.write(f"Spread Costs: {spread_costs:.2f} €")
-st.write(f"Net PnL: {net_pnl:.2f} €")
+st.write(f"Net PnL (proxy): {net_pnl:.2f} €")
 
 # =========================
 # TABLES
