@@ -1,16 +1,25 @@
-# ============================================================
-# VIX REGIME SYSTEM - OPTIMIZED BACKTEST V1
-# ============================================================
-
 import numpy as np
 import pandas as pd
 
-# ------------------------------------------------------------
-# 1. FEATURE ENGINEERING
-# ------------------------------------------------------------
+
+# ============================================================
+# 1. CLEANING / SAFETY LAYER
+# ============================================================
+
+def clean_data(df):
+    df = df.copy()
+
+    df = df.replace([np.inf, -np.inf], np.nan)
+    df = df.dropna(subset=["spx", "vix"])
+
+    return df
+
+
+# ============================================================
+# 2. FEATURE ENGINE (VECTORIZED)
+# ============================================================
 
 def add_features(df):
-
     df = df.copy()
 
     # Returns
@@ -22,9 +31,10 @@ def add_features(df):
     # Drawdown
     df["drawdown"] = df["spx"] / df["spx"].cummax() - 1
 
-    # VIX Z-Score (60d)
+    # VIX Z-Score
     vix_mean = df["vix"].rolling(60).mean()
     vix_std = df["vix"].rolling(60).std()
+
     df["vix_z"] = (df["vix"] - vix_mean) / vix_std
 
     # Momentum
@@ -39,91 +49,26 @@ def add_features(df):
     return df
 
 
-# ------------------------------------------------------------
-# 2. REGIME MODEL (OPTIMIZED THRESHOLDS)
-# ------------------------------------------------------------
+# ============================================================
+# 3. REGIME ENGINE (FULLY VECTORIZED)
+# ============================================================
 
-def classify_regime(row,
-                    vix_low=15.5,
-                    vix_high=22,
-                    contango_min=1.015):
-
-    vix = row["vix"]
-    vix_z = row["vix_z"]
-    spx = row["spx"]
-    ma50 = row["spx_ma50"]
-    drawdown = row["drawdown"]
-    contango = row["contango"]
-    vix_mom = row["vix_mom_5d"]
-
-    # -----------------------------
-    # SHORT VOL (CARRY ZONE)
-    # -----------------------------
-    if (
-        vix < vix_low and
-        vix_z < -0.6 and
-        spx > ma50 and
-        contango > contango_min
-    ):
-        return -1.0
-
-    # -----------------------------
-    # TRANSITION (EARLY STRESS)
-    # -----------------------------
-    elif (
-        vix_low <= vix <= vix_high and
-        vix_mom > 0.08
-    ):
-        return 0.3
-
-    # -----------------------------
-    # LONG VOL (STRESS)
-    # -----------------------------
-    elif (
-        vix > vix_high and
-        drawdown < -0.05
-    ):
-        return 1.0
-
-    # -----------------------------
-    # PANIC REDUCTION ZONE
-    # -----------------------------
-    elif vix > 30:
-        return 0.5
-
-    return 0.0
-
-
-# ------------------------------------------------------------
-# 3. SIGNAL ENGINE
-# ------------------------------------------------------------
-
-def generate_signals(df, params):
+def compute_regime(df,
+                   vix_low=15.5,
+                   vix_high=22,
+                   contango_min=1.015):
 
     df = df.copy()
 
-    df["position"] = df.apply(
-        lambda row: classify_regime(
-            row,
-            params["vix_low"],
-            params["vix_high"],
-            params["contango_min"]
-        ),
-        axis=1
-    )
+    vix = df["vix"]
+    vix_z = df["vix_z"]
+    spx = df["spx"]
+    ma50 = df["spx_ma50"]
+    drawdown = df["drawdown"]
+    contango = df["contango"]
+    vix_mom = df["vix_mom_5d"]
 
-    # avoid lookahead bias
-    df["position"] = df["position"].shift(1).fillna(0)
-
-    return df
-
-
-# ------------------------------------------------------------
-# 4. VIX RETURN MODEL (ASYMMETRIC)
-# ------------------------------------------------------------
-
-def vix_returns(df):
-
-    df = df.copy()
-
-    df["vix_ret"] = np.log(df["vix
+    short_vol = (
+        (vix < vix_low) &
+        (vix_z < -0.6) &
+        (spx > ma50
